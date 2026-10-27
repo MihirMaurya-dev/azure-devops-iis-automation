@@ -1,0 +1,42 @@
+trigger:
+- master
+
+pool:
+  name: 'Velociraptor-Agent'
+
+steps:
+- task: DotNetCoreCLI@2
+  displayName: 'Run Unit Tests'
+  inputs:
+    command: 'test'
+    projects: '**/*.csproj'  # Changed from .sln to .csproj
+    arguments: '--collect "XPlat Code Coverage"'
+    publishTestResults: true
+
+- task: PublishCodeCoverageResults@2
+  displayName: 'Publish Code Coverage Dashboard'
+  inputs:
+    summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
+
+- task: PowerShell@2
+  displayName: 'Configure IIS & Deploy Static Site'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $targetPath = "C:\inetpub\wwwroot\SimpleApp"
+      if (-not (Test-Path $targetPath)) {
+          New-Item -ItemType Directory -Force -Path $targetPath
+      }
+      
+      # Copy the static HTML files directly from the repository
+      Copy-Item -Path "$(System.DefaultWorkingDirectory)\TestingPractice\SimpleApp\*" -Destination $targetPath -Recurse -Force
+      
+      # Create the IIS Web Application using appcmd
+      $appcmd = "C:\Windows\System32\inetsrv\appcmd.exe"
+      $appExists = & $appcmd list app /app.name:"Default Web Site/SimpleApp"
+      
+      if (-not $appExists) {
+          & $appcmd add app /site.name:"Default Web Site" /path:"/SimpleApp" /physicalPath:$targetPath /applicationPool:"DefaultAppPool"
+      }
+      
+      Write-Host "Deployed successfully to http://localhost/SimpleApp/"
